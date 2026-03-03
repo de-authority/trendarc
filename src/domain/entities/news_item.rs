@@ -3,6 +3,7 @@
 //! Represents a single news item from any source.
 
 use chrono::{DateTime, Utc};
+use super::Domain;
 
 /// A news item that has been aggregated from various sources
 #[derive(Debug, Clone)]
@@ -24,10 +25,16 @@ pub struct NewsItem {
     
     /// When the news was published
     pub published_at: DateTime<Utc>,
+    
+    /// The classified domain (optional, set after classification)
+    pub domain: Option<Domain>,
+    
+    /// Classification confidence score (0.0 - 1.0)
+    pub classification_confidence: Option<f32>,
 }
 
 impl NewsItem {
-    /// Create a new NewsItem
+    /// Create a new NewsItem (without classification)
     pub fn new(
         id: String,
         title: String,
@@ -43,6 +50,31 @@ impl NewsItem {
             source,
             author,
             published_at,
+            domain: None,
+            classification_confidence: None,
+        }
+    }
+    
+    /// Create a new NewsItem with classification
+    pub fn new_with_classification(
+        id: String,
+        title: String,
+        url: String,
+        source: String,
+        author: String,
+        published_at: DateTime<Utc>,
+        domain: Domain,
+        confidence: f32,
+    ) -> Self {
+        Self {
+            id,
+            title,
+            url,
+            source,
+            author,
+            published_at,
+            domain: Some(domain),
+            classification_confidence: Some(confidence),
         }
     }
 }

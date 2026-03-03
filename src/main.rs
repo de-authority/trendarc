@@ -21,12 +21,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(1);
     }
 
+    // 显示警告信息
+    for warning in cli.get_warnings() {
+        eprintln!("⚠️  警告: {}", warning);
+    }
+
     println!("🚀 TrendArc - 热点新闻聚合器\n");
 
     // 初始化数据库连接池（如果需要）
     let repository = if cli.save || cli.load || cli.stats {
         println!("📊 初始化数据库: {}", cli.database);
-        let pool = create_pool(&format!("sqlite:{}", cli.database)).await?;
+        let pool = create_pool(&cli.database).await?;
         let repo = Arc::new(SqliteNewsRepository::new(pool)) as Arc<dyn domain::NewsRepository>;
         println!("✅ 数据库初始化完成\n");
         Some(repo)
@@ -39,12 +44,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return orchestration::show_stats(repository.as_ref().unwrap()).await;
     }
 
+    // 解析并验证所有域名参数（提前失败）
+    let target_domains: Option<Vec<Domain>> = cli.domain.as_ref().map(|domains| {
+        domains.iter()
+            .map(|d| Domain::from_str(d))
+            .collect::<Result<Vec<_>, _>>()
+    }).transpose()?;
+
     // 获取新闻数据
     let news_items = if cli.load {
         // 从数据库加载
         println!("📂 从数据库加载新闻...\n");
-        let domain = cli.domain.as_ref().map(|d| parse_domain(d).unwrap());
-        let news = orchestration::load_from_database(repository.as_ref().unwrap(), domain, cli.limit).await?;
+        
+        // 数据库查询时的域名过滤：单域名在SQL层面过滤，多域名加载全部后在内存过滤
+        let db_filter_domain = target_domains.as_ref().and_then(|domains| {
+            if domains.len() == 1 {
+                Some(domains[0])
+            } else {
+                None
+            }
+        });
+        
+        let news = orchestration::load_from_database(repository.as_ref().unwrap(), db_filter_domain, cli.limit).await?;
         println!("✅ 加载完成！共 {} 条新闻\n", news.len());
         news
     } else {
@@ -55,11 +76,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     // 过滤领域（如果指定）
-    let filtered_news = if let Some(ref domain_str) = cli.domain {
-        let domain = parse_domain(domain_str)?;
+    let filtered_news = if let Some(ref domains) = target_domains {
         let classifier = NewsClassificationService::new();
-        println!("🔍 过滤领域: {}\n", domain);
-        classifier.filter_by_domain(&news_items, domain)
+        
+        if domains.len() == 1 {
+            // 单个域名：使用统一的过滤函数
+            println!("🔍 过滤领域: {}\n", domains[0]);
+            filter_by_multiple_domains(&news_items, domains, &classifier)
+        } else {
+            // 多个域名：单次遍历，同时匹配所有域名
+            println!("🔍 过滤领域: {}\n", cli.domain.as_ref().unwrap().join(", "));
+            filter_by_multiple_domains(&news_items, domains, &classifier)
+        }
     } else {
         news_items
     };
@@ -73,14 +101,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-/// 解析领域字符串
-fn parse_domain(domain_str: &str) -> Result<Domain, String> {
-    match domain_str.to_lowercase().as_str() {
-        "ai" => Ok(Domain::AI),
-        "block" => Ok(Domain::Block),
-        "social" => Ok(Domain::Social),
-        _ => Err(format!("无效的领域: {}", domain_str)),
+/// 高效地按多个领域过滤新闻
+/// 单次遍历，同时匹配所有目标领域，自动去重并按时间排序
+fn filter_by_multiple_domains(
+    news_items: &[crate::domain::NewsItem],
+    target_domains: &[Domain],
+    classifier: &NewsClassificationService,
+) -> Vec<crate::domain::NewsItem> {
+    use std::collections::HashSet;
+    
+    let target_set: HashSet<Domain> = target_domains.iter().copied().collect();
+    let mut seen_urls = HashSet::new();
+    let mut filtered = Vec::new();
+
+    for news in news_items {
+        // 去重：同一 URL 只保留一次
+        if !seen_urls.contains(&news.url) {
+            seen_urls.insert(&news.url);
+        } else {
+            continue;
+        }
+
+        // 检查新闻是否属于任一目标领域
+        let result = classifier.classify(news);
+        if target_set.contains(&result.domain) {
+            // 更新新闻的 domain 字段，确保 display_news 能正确分组
+            let mut classified_news = news.clone();
+            classified_news.domain = Some(result.domain);
+            classified_news.classification_confidence = Some(result.confidence);
+            filtered.push(classified_news);
+        }
     }
+
+    // 按发布时间降序排序
+    filtered.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+    filtered
 }
 
 // ========== 集成测试 ==========

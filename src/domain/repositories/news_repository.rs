@@ -7,18 +7,12 @@ use crate::domain::{Domain, NewsItem};
 /// Infrastructure 层提供具体实现（如 SQLite、PostgreSQL）
 #[async_trait]
 pub trait NewsRepository: Send + Sync {
-    /// 保存单条新闻（不包含领域分类）
+    /// 保存单条新闻（包含领域分类）
     /// 如果 URL 已存在则跳过（静默失败）
     async fn save(&self, news: &NewsItem) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     
-    /// 保存单条新闻及其领域分类
-    async fn save_with_domain(&self, news: &NewsItem, domain: Domain) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-    
-    /// 批量保存新闻（不包含领域分类）
+    /// 批量保存新闻（包含领域分类）
     async fn save_batch(&self, news_items: &[NewsItem]) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-    
-    /// 批量保存新闻及其领域分类
-    async fn save_batch_with_domains(&self, news_items: &[(NewsItem, Domain)]) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     
     /// 根据 ID 查询新闻
     async fn find_by_id(&self, id: &str) -> Result<Option<NewsItem>, Box<dyn std::error::Error + Send + Sync>>;

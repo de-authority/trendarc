@@ -21,6 +21,9 @@ pub enum Domain {
 }
 
 impl Domain {
+    /// All valid domain names for parsing
+    pub const VALID_DOMAINS: [&'static str; 3] = ["ai", "block", "social"];
+
     /// Get display name for the domain
     pub fn display_name(&self) -> &str {
         match self {
@@ -29,6 +32,28 @@ impl Domain {
             Domain::Social => "Social",
             Domain::Uncategorized => "Uncategorized",
         }
+    }
+
+    /// Parse a string to Domain
+    /// Returns Ok(Domain) for valid domain strings (case-insensitive)
+    /// Returns Err with error message for invalid strings
+    pub fn from_str(s: &str) -> Result<Domain, String> {
+        match s.to_lowercase().as_str() {
+            "ai" => Ok(Domain::AI),
+            "block" => Ok(Domain::Block),
+            "social" => Ok(Domain::Social),
+            _ => Err(format!("无效的领域: {}. 有效值: {}", s, Self::valid_domains_str())),
+        }
+    }
+
+    /// Get comma-separated list of valid domains
+    pub fn valid_domains_str() -> String {
+        Self::VALID_DOMAINS.join(", ")
+    }
+
+    /// Check if a string is a valid domain name
+    pub fn is_valid(s: &str) -> bool {
+        Self::VALID_DOMAINS.contains(&s.to_lowercase().as_str())
     }
 }
 

@@ -77,11 +77,9 @@ impl<'a> FetchHotNewsUseCase for FetchHotNewsService<'a> {
         if let Some(ref repo) = self.repository {
             println!("💾 保存新闻到数据库...");
             // 对新闻进行分类并保存
-            let news_with_domains: Vec<(NewsItem, _)> = sorted_news
-                .iter()
-                .map(|news| (news.clone(), self.classifier.classify(news)))
-                .collect();
-            repo.save_batch_with_domains(&news_with_domains).await?;
+            let mut news_to_save = sorted_news.clone();
+            self.classifier.classify_batch(&mut news_to_save);
+            repo.save_batch(&news_to_save).await?;
             println!("✅ 保存完成！\n");
         }
 
