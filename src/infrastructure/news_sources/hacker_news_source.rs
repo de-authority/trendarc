@@ -1,5 +1,5 @@
-use crate::domain::NewsItem;
 use crate::domain::NewsFetcher;
+use crate::domain::NewsItem;
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use reqwest::Client;
@@ -54,7 +54,10 @@ impl HackerNewsSource {
 
 #[async_trait]
 impl NewsFetcher for HackerNewsSource {
-    async fn fetch(&self, limit: usize) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
         // Step 1: Get top story IDs
         let ids_url = format!("{}/topstories.json", self.api_base);
         let ids: Vec<u32> = self.client.get(&ids_url).send().await?.json().await?;
@@ -84,7 +87,7 @@ impl NewsFetcher for HackerNewsSource {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to fetch item {}: {}", id, e);
+                        tracing::error!("Failed to fetch item {}: {}", id, e);
                         None
                     }
                 }

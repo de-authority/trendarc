@@ -1,4 +1,7 @@
-use crate::domain::{NewsFetcher, NewsItem, NewsDeduplicationService, NewsSortingService, NewsRepository, NewsClassificationService};
+use crate::domain::{
+    NewsClassificationService, NewsDeduplicationService, NewsFetcher, NewsItem, NewsRepository,
+    NewsSortingService,
+};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -24,7 +27,10 @@ use std::sync::Arc;
 /// - 如果没有提供 Repository，则只抓取不保存（保持向后兼容）
 #[async_trait]
 pub trait FetchHotNewsUseCase: Send + Sync {
-    async fn execute(&self, limit: usize) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>>;
+    async fn execute(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 /// 默认实现
@@ -35,10 +41,7 @@ pub struct FetchHotNewsService<'a> {
 }
 
 impl<'a> FetchHotNewsService<'a> {
-    pub fn new(
-        fetcher: &'a dyn NewsFetcher,
-        classifier: Arc<NewsClassificationService>,
-    ) -> Self {
+    pub fn new(fetcher: &'a dyn NewsFetcher, classifier: Arc<NewsClassificationService>) -> Self {
         Self {
             fetcher,
             classifier,
@@ -47,7 +50,7 @@ impl<'a> FetchHotNewsService<'a> {
     }
 
     /// 设置 Repository（可选）
-    /// 
+    ///
     /// # 示例
     /// ```ignore
     /// let use_case = FetchHotNewsService::new(&fetcher, classifier)
@@ -59,10 +62,15 @@ impl<'a> FetchHotNewsService<'a> {
     }
 }
 
+use tracing::info;
+
 #[async_trait]
 impl<'a> FetchHotNewsUseCase for FetchHotNewsService<'a> {
-    async fn execute(&self, limit: usize) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
-        println!("📡 从 {} 获取热点新闻...\n", self.fetcher.source_name());
+    async fn execute(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
+        info!("📡 从 {} 获取热点新闻...", self.fetcher.source_name());
 
         // 1. 获取数据
         let news = self.fetcher.fetch(limit).await?;
@@ -73,21 +81,19 @@ impl<'a> FetchHotNewsUseCase for FetchHotNewsService<'a> {
         // 3. 排序（按时间，最新的在前）
         let sorted_news = NewsSortingService::sort_by_published_at_desc(unique_news);
 
-        // 4. 保存到数据库（如果提供了 Repository）
+        // 4. 分类新闻
+        let mut news_items = sorted_news;
+        self.classifier.classify_batch(&mut news_items);
+
+        // 5. 保存到数据库（如果提供了 Repository）
         if let Some(ref repo) = self.repository {
-            println!("💾 保存新闻到数据库...");
-            // 对新闻进行分类并保存
-            let mut news_to_save = sorted_news.clone();
-            self.classifier.classify_batch(&mut news_to_save);
-            repo.save_batch(&news_to_save).await?;
-            println!("✅ 保存完成！\n");
+            info!("💾 保存新闻到数据库...");
+            repo.save_batch(&news_items).await?;
+            info!("✅ 保存完成！");
         }
 
-        // 5. 分类（可选：在展示时使用分类器）
-        // 注意：分类不修改 NewsItem，只是在展示时使用
-        
-        println!("✅ 获取完成！共 {} 条新闻（已去重）\n", sorted_news.len());
+        info!("✅ 获取完成！共 {} 条新闻（已去重）", news_items.len());
 
-        Ok(sorted_news)
+        Ok(news_items)
     }
 }
