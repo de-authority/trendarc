@@ -33,39 +33,26 @@
     ]
   },
   "weak_keywords": {
-    "AI": [
-      "ai",
-      "machine learning",
-      "ml",
-      "model",
-      "ai agents",
-      "speculative",
-      "decoding",
-      "inference",
-      "fine-tuning",
-      "神经网络",
-      "形式化验证",
-      "weave",
-      "实体合并",
-      "代码合并",
-      "ai代理",
-      "torchlean",
-      "软件开发",
-      "验证"
-    ],
     "Social": [
       "social media",
       "influencer",
       "viral"
+    ],
+    "AI": [
+      "machine learning",
+      "model",
+      "ai agents",
+      "ai",
+      "ml",
+      "inference",
+      "fine-tuning"
     ],
     "Block": [
       "crypto",
       "blockchain",
       "token",
       "智能合约",
-      "grapheneos",
-      "security",
-      "partnership"
+      "mock"
     ]
   },
   "source_tendency": {}

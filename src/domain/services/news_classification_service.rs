@@ -147,9 +147,12 @@ impl NewsClassificationService {
 
                     let domain = result.domain.unwrap();
 
-                    // 只有判定为明确领域时才学习关键词
+                    // 【重要】暂时禁用自动学习关键词，因为AI关键词不准
+                    // 分类置信度与关键词质量无关，需要人工审核
                     if !result.suggested_keywords.is_empty() {
-                        self.append_keywords(domain, result.suggested_keywords);
+                        info!("🔍 AI建议关键词（需人工审核）: {:?}", result.suggested_keywords);
+                        // 暂不学习，记录日志供人工审核
+                        // self.append_keywords(domain, result.suggested_keywords);
                     }
 
                     return ClassificationOutcome {
@@ -220,13 +223,13 @@ impl NewsClassificationService {
         *items = filtered_items;
     }
 
+    /// 暂时禁用的关键词学习方法
+    #[allow(dead_code)]
     fn append_keywords(&self, domain: Domain, keywords: Vec<String>) {
-        let mut config = self.config.write().unwrap();
-        config.merge_suggested_keywords(domain, keywords);
-        if let Err(e) = config.save_to_file(&self.config_path) {
-            warn!("❌ 无法同步词库: {}", e);
-        } else {
-            info!("💾 词库已进化: {}", self.config_path.display());
+        // 当前AI关键词不准，暂时禁用自动学习
+        // 只记录日志供人工审核
+        if !keywords.is_empty() {
+            info!("🔍 AI建议关键词（暂不学习）: {:?}", keywords);
         }
     }
 
