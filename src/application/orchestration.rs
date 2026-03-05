@@ -15,12 +15,13 @@ use tracing::info;
 /// - 业务流程编排属于 Application 层的职责
 /// - 这样可以更好地测试和复用
 
-/// 从数据源抓取新闻
-pub async fn fetch_from_source(
+/// 从数据源抓取新闻（支持分类控制）
+pub async fn fetch_from_source_with_classification(
     fetcher: Arc<dyn NewsFetcher>,
     classifier: Arc<NewsClassificationService>,
     limit: usize,
     repository: Option<Arc<dyn crate::domain::NewsRepository>>,
+    should_classify: bool,
 ) -> Result<Vec<crate::domain::NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
     let mut use_case = FetchHotNewsService::new(&*fetcher, classifier);
 
@@ -29,7 +30,22 @@ pub async fn fetch_from_source(
         use_case = use_case.with_repository(Arc::clone(repo));
     }
 
-    use_case.execute(limit).await
+    // 根据参数决定是否执行分类
+    if should_classify {
+        use_case.execute_with_classification(limit).await
+    } else {
+        use_case.execute_without_classification(limit).await
+    }
+}
+
+/// 从数据源抓取新闻（向后兼容版本，默认执行分类）
+pub async fn fetch_from_source(
+    fetcher: Arc<dyn NewsFetcher>,
+    classifier: Arc<NewsClassificationService>,
+    limit: usize,
+    repository: Option<Arc<dyn crate::domain::NewsRepository>>,
+) -> Result<Vec<crate::domain::NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
+    fetch_from_source_with_classification(fetcher, classifier, limit, repository, true).await
 }
 
 /// 从数据库加载新闻

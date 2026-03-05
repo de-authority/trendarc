@@ -3,4 +3,5 @@ pub mod inference;
 pub mod news_sources;
 pub mod repositories;
 
-pub use inference::ollama_inference_service::OllamaInferenceService;
+pub use inference::create_inference_service;
+pub use inference::OpenAIInferenceService;

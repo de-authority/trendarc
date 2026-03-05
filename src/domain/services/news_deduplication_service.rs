@@ -28,6 +28,7 @@ impl NewsDeduplicationService {
     /// Deduplicate news items by title
     ///
     /// Keeps only the first occurrence of each unique title.
+    #[allow(dead_code)]
     pub fn deduplicate_by_title(news: Vec<NewsItem>) -> Vec<NewsItem> {
         let mut seen: HashSet<String> = HashSet::new();
         let mut result = Vec::new();
@@ -44,6 +45,7 @@ impl NewsDeduplicationService {
     /// Deduplicate news items by both URL and title
     ///
     /// Keeps only items that have unique combinations of URL and title.
+    #[allow(dead_code)]
     pub fn deduplicate_by_url_and_title(news: Vec<NewsItem>) -> Vec<NewsItem> {
         let mut seen: HashSet<(String, String)> = HashSet::new();
         let mut result = Vec::new();

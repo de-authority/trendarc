@@ -70,7 +70,18 @@ impl<'a> FetchHotNewsUseCase for FetchHotNewsService<'a> {
         &self,
         limit: usize,
     ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
-        info!("📡 从 {} 获取热点新闻...", self.fetcher.source_name());
+        // 向后兼容：默认执行分类
+        self.execute_with_classification(limit).await
+    }
+}
+
+impl<'a> FetchHotNewsService<'a> {
+    /// 执行抓取并分类
+    pub async fn execute_with_classification(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
+        info!("📡 从 {} 获取热点新闻（执行分类）...", self.fetcher.source_name());
 
         // 1. 获取数据
         let news = self.fetcher.fetch(limit).await?;
@@ -95,6 +106,37 @@ impl<'a> FetchHotNewsUseCase for FetchHotNewsService<'a> {
         }
 
         info!("✅ 获取完成！共 {} 条新闻（已去重）", news_items.len());
+
+        Ok(news_items)
+    }
+
+    /// 执行抓取但不分类
+    pub async fn execute_without_classification(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
+        info!("📡 从 {} 获取热点新闻（不执行分类）...", self.fetcher.source_name());
+
+        // 1. 获取数据
+        let news = self.fetcher.fetch(limit).await?;
+
+        // 2. 去重（按 URL）
+        let unique_news = NewsDeduplicationService::deduplicate_by_url(news);
+
+        // 3. 排序（按时间，最新的在前）
+        let sorted_news = NewsSortingService::sort_by_published_at_desc(unique_news);
+
+        // 4. 不执行分类，所有新闻都保留
+        let news_items = sorted_news;
+
+        // 5. 保存到数据库（如果提供了 Repository）
+        if let Some(ref repo) = self.repository {
+            info!("💾 保存新闻到数据库...");
+            repo.save_batch(&news_items).await?;
+            info!("✅ 保存完成！");
+        }
+
+        info!("✅ 获取完成！共 {} 条新闻（已去重，未分类）", news_items.len());
 
         Ok(news_items)
     }

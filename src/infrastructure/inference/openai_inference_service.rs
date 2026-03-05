@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tracing::{debug, error, info};
 
-/// Ollama 请求结构
+/// OpenAI 请求结构
 #[derive(Serialize)]
-struct OllamaChatRequest {
+struct OpenAIChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
     stream: bool,
-    format: String, // 强制生成 JSON
+    response_format: ResponseFormat, // OpenAI使用response_format
 }
 
 #[derive(Serialize)]
@@ -20,9 +20,25 @@ struct ChatMessage {
     content: String,
 }
 
-/// Ollama 响应结构
+#[derive(Serialize)]
+struct ResponseFormat {
+    type_: String,
+}
+
+impl ResponseFormat {
+    fn json() -> Self {
+        Self { type_: "json_object".to_string() }
+    }
+}
+
+/// OpenAI 响应结构
 #[derive(Deserialize)]
-struct OllamaChatResponse {
+struct OpenAIChatResponse {
+    choices: Vec<Choice>,
+}
+
+#[derive(Deserialize)]
+struct Choice {
     message: ChatMessageResponse,
 }
 
@@ -31,7 +47,7 @@ struct ChatMessageResponse {
     content: String,
 }
 
-/// AI 返回的 JSON 格式定义
+/// AI 返回的 JSON 格式定义 (与Ollama兼容)
 #[derive(Deserialize)]
 struct AIClassification {
     is_relevant: bool,
@@ -41,33 +57,41 @@ struct AIClassification {
     suggested_keywords: Vec<String>,
 }
 
-pub struct OllamaInferenceService {
-    base_url: String,
+pub struct OpenAIInferenceService {
+    api_key: String,
     model_name: String,
+    base_url: String,
     client: reqwest::Client,
 }
 
-impl OllamaInferenceService {
+impl OpenAIInferenceService {
     /// 创建服务实例。
     ///
-    /// 优先级（高→低）：
-    /// 1. 环境变量 `OLLAMA_BASE_URL` / `OLLAMA_MODEL`
-    /// 2. 传入的 `model_name` 参数（作为模型的代码默认值）
-    pub fn new(model_name: &str) -> Self {
-        let base_url = std::env::var("OLLAMA_BASE_URL")
-            .unwrap_or_else(|_| "http://localhost:11434/api/chat".to_string());
-        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| model_name.to_string());
+    /// 配置优先级（高→低）：
+    /// 1. 环境变量 `OPENAI_API_KEY`（必需）
+    /// 2. 环境变量 `OPENAI_MODEL`（默认：gpt-3.5-turbo）
+    /// 3. 环境变量 `OPENAI_BASE_URL`（默认：https://api.openai.com/v1）
+    pub fn new() -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let api_key = std::env::var("OPENAI_API_KEY")
+            .map_err(|_| "OPENAI_API_KEY environment variable is required")?;
+        
+        let model = std::env::var("OPENAI_MODEL")
+            .unwrap_or_else(|_| "gpt-3.5-turbo".to_string());
+            
+        let base_url = std::env::var("OPENAI_BASE_URL")
+            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
 
-        Self {
-            base_url,
+        Ok(Self {
+            api_key,
             model_name: model,
+            base_url,
             client: reqwest::Client::new(),
-        }
+        })
     }
 }
 
 #[async_trait]
-impl NewsInferenceService for OllamaInferenceService {
+impl NewsInferenceService for OpenAIInferenceService {
     async fn infer(
         &self,
         news: &NewsItem,
@@ -107,7 +131,7 @@ OUTPUT FORMAT (JSON):
             news.title, news.source, truncated_content
         );
 
-        let request = OllamaChatRequest {
+        let request = OpenAIChatRequest {
             model: self.model_name.clone(),
             messages: vec![
                 ChatMessage {
@@ -120,26 +144,45 @@ OUTPUT FORMAT (JSON):
                 },
             ],
             stream: false,
-            format: "json".to_string(),
+            response_format: ResponseFormat::json(),
         };
 
-        debug!("Sending request to Ollama with input:\n{}", user_input);
+        debug!("Sending request to OpenAI with input:\n{}", user_input);
+        
+        let url = format!("{}/chat/completions", self.base_url);
         let response = self
             .client
-            .post(&self.base_url)
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
             .json(&request)
             .send()
             .await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let err_body = response.text().await?;
-            error!("Ollama error response: {}", err_body);
-            return Err(format!("Ollama API returned error: {}", err_body).into());
+            error!("OpenAI API error {}: {}", status, err_body);
+            
+            // 处理速率限制和认证错误
+            if status == 429 {
+                return Err("OpenAI API rate limit exceeded".into());
+            } else if status == 401 || status == 403 {
+                return Err("OpenAI API authentication failed".into());
+            }
+            return Err(format!("OpenAI API returned error {}: {}", status, err_body).into());
         }
 
-        let body: OllamaChatResponse = response.json().await?;
-        info!("🤖 AI Raw Response: {}", body.message.content);
-        let ai_result: AIClassification = serde_json::from_str(&body.message.content)?;
+        let body: OpenAIChatResponse = response.json().await?;
+        
+        // OpenAI返回choices数组，取第一个
+        if body.choices.is_empty() {
+            return Err("OpenAI API returned empty choices array".into());
+        }
+        
+        let content = &body.choices[0].message.content;
+        info!("🤖 AI Raw Response: {}", content);
+        let ai_result: AIClassification = serde_json::from_str(content)?;
 
         let final_domain = match ai_result.domain.as_deref() {
             Some("AI") => Some(Domain::AI),

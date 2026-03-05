@@ -5,8 +5,8 @@ mod infrastructure;
 
 use crate::application::orchestration;
 use crate::domain::NewsClassificationService;
+use crate::domain::fetchers::NewsSourceFactory;
 use crate::infrastructure::database::create_pool;
-use crate::infrastructure::news_sources::HackerNewsSource;
 use crate::infrastructure::repositories::SqliteNewsRepository;
 use std::sync::Arc;
 use tracing::info;
@@ -35,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     match cli.command {
         cli::Commands::Fetch {
+            source,
             save,
             limit,
             domain,
@@ -50,18 +51,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 None
             };
 
-            let hn_fetcher = Arc::new(HackerNewsSource::new());
+            // 根据数据源参数创建 fetcher
+            let fetcher = NewsSourceFactory::create(source);
+            info!("🌐 从 {} 数据源抓取数据...", fetcher.source_name());
 
-            // 初始化 AI 仲裁服务 (Ollama)
-            let ai_service = Arc::new(infrastructure::OllamaInferenceService::new("qwen2.5"));
-            let classifier =
-                Arc::new(NewsClassificationService::new().with_inference_service(ai_service));
+            // 初始化 AI 仲裁服务 (OpenAI)
+            let ai_service = infrastructure::create_inference_service();
+            let classifier = if let Some(ai) = ai_service {
+                info!("🤖 AI分类已启用，使用模型: {}", ai.name());
+                Arc::new(NewsClassificationService::new().with_inference_service(ai))
+            } else {
+                info!("🚫 AI分类已禁用，仅使用规则引擎");
+                Arc::new(NewsClassificationService::new())
+            };
 
-            info!("🌐 正在从 Hacker News 抓取数据...");
+            // 根据 domain 参数决定是否执行分类
+            let should_classify = domain.is_some();
+
             let news_items =
-                orchestration::fetch_from_source(hn_fetcher, classifier.clone(), limit, repository)
-                    .await?;
+                orchestration::fetch_from_source_with_classification(
+                    fetcher,
+                    classifier.clone(),
+                    limit,
+                    repository,
+                    should_classify,
+                )
+                .await?;
 
+            // 如果指定了 domain 参数，进行过滤
             let filtered_news = if let Some(ref domains) = domain {
                 info!(
                     "🔍 过滤领域: {}",

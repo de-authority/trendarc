@@ -16,10 +16,24 @@ pub struct Cli {
     pub database: String,
 }
 
+/// 数据源枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
+pub enum DataSource {
+    /// 所有可用数据源
+    All,
+    /// Hacker News (tech news)
+    #[value(name = "hackernews")]
+    HackerNews,
+}
+
 #[derive(clap::Subcommand, Debug)]
 pub enum Commands {
     /// 从网络数据源抓取新闻
     Fetch {
+        /// 数据源 (all, hackernews)
+        #[arg(short = 'S', long, value_enum, default_value = "all")]
+        source: DataSource,
+
         /// 是否保存到数据库
         #[arg(short, long, action)]
         save: bool,
