@@ -184,6 +184,48 @@ impl NewsRepository for SqliteNewsRepository {
         Ok(row.map(row_to_news_item).transpose()?)
     }
 
+    async fn find_existing_urls(
+        &self,
+        urls: &[String],
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+        if urls.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // SQLite 参数限制为 999，分批处理
+        const BATCH_SIZE: usize = 999;
+        let mut existing_urls = Vec::new();
+
+        for chunk in urls.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            // 构建占位符 (?1, ?2, ...)
+            let placeholders = chunk
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!("?{}", i + 1))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let query_str = format!(
+                "SELECT url FROM news_items WHERE url IN ({})",
+                placeholders
+            );
+
+            let mut query = sqlx::query_scalar(&query_str);
+            for url in chunk {
+                query = query.bind(url);
+            }
+
+            let chunk_results: Vec<String> = query.fetch_all(&self.pool).await?;
+            existing_urls.extend(chunk_results);
+        }
+
+        Ok(existing_urls)
+    }
+
     async fn count(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM news_items")
             .fetch_one(&self.pool)

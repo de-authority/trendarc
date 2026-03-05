@@ -76,7 +76,7 @@ impl<'a> FetchHotNewsUseCase for FetchHotNewsService<'a> {
 }
 
 impl<'a> FetchHotNewsService<'a> {
-    /// 执行抓取并分类
+    /// 执行抓取并分类（优化版本）
     pub async fn execute_with_classification(
         &self,
         limit: usize,
@@ -85,32 +85,69 @@ impl<'a> FetchHotNewsService<'a> {
 
         // 1. 获取数据
         let news = self.fetcher.fetch(limit).await?;
+        info!("📰 抓取到 {} 条原始新闻", news.len());
 
-        // 2. 去重（按 URL）
-        let unique_news = NewsDeduplicationService::deduplicate_by_url(news);
+        // 2. 过滤掉数据库中已存在的新闻（优化：批量检查）
+        let (filtered_news, skipped_count) = if let Some(ref repo) = self.repository {
+            // 提取所有 URL
+            let urls: Vec<String> = news.iter().map(|n| n.url.clone()).collect();
+            
+            // 批量查询已存在的 URL
+            let existing_urls = repo.find_existing_urls(&urls).await?;
+            
+            // 过滤掉已存在的新闻
+            let filtered: Vec<NewsItem> = news
+                .into_iter()
+                .filter(|n| !existing_urls.contains(&n.url))
+                .collect();
+            
+            let skipped = urls.len() - filtered.len();
+            
+            if skipped > 0 {
+                info!("⏭️  忽略 {} 条已存在于数据库的新闻", skipped);
+            }
+            
+            (filtered, skipped)
+        } else {
+            (news, 0)
+        };
 
-        // 3. 排序（按时间，最新的在前）
+        if filtered_news.is_empty() {
+            info!("✅ 没有新新闻需要处理");
+            return Ok(Vec::new());
+        }
+
+        info!("🔍 需要处理 {} 条新新闻", filtered_news.len());
+
+        // 3. 去重（内存中的去重，以防抓取到重复的 URL）
+        let filtered_len = filtered_news.len();
+        let unique_news = NewsDeduplicationService::deduplicate_by_url(filtered_news);
+        if unique_news.len() != filtered_len {
+            info!("🧹 内存中去重，过滤掉 {} 条重复项", filtered_len - unique_news.len());
+        }
+
+        // 4. 排序（按时间，最新的在前）
         let sorted_news = NewsSortingService::sort_by_published_at_desc(unique_news);
 
-        // 4. 分类新闻并过滤掉无关项
+        // 5. 分类新闻并过滤掉无关项
         let mut news_items = sorted_news;
         self.classifier
             .classify_batch_and_filter(&mut news_items)
             .await;
 
-        // 5. 保存到数据库（如果提供了 Repository）
-        if let Some(ref repo) = self.repository {
-            info!("💾 保存新闻到数据库...");
+        // 6. 保存到数据库（如果提供了 Repository）
+        if let Some(ref repo) = self.repository && !news_items.is_empty() {
+            info!("💾 保存 {} 条新新闻到数据库...", news_items.len());
             repo.save_batch(&news_items).await?;
             info!("✅ 保存完成！");
         }
 
-        info!("✅ 获取完成！共 {} 条新闻（已去重）", news_items.len());
+        info!("✅ 获取完成！共处理 {} 条新新闻（忽略 {} 条已存在）", news_items.len(), skipped_count);
 
         Ok(news_items)
     }
 
-    /// 执行抓取但不分类
+    /// 执行抓取但不分类（优化版本）
     pub async fn execute_without_classification(
         &self,
         limit: usize,
@@ -119,24 +156,61 @@ impl<'a> FetchHotNewsService<'a> {
 
         // 1. 获取数据
         let news = self.fetcher.fetch(limit).await?;
+        info!("📰 抓取到 {} 条原始新闻", news.len());
 
-        // 2. 去重（按 URL）
-        let unique_news = NewsDeduplicationService::deduplicate_by_url(news);
+        // 2. 过滤掉数据库中已存在的新闻（优化：批量检查）
+        let (filtered_news, skipped_count) = if let Some(ref repo) = self.repository {
+            // 提取所有 URL
+            let urls: Vec<String> = news.iter().map(|n| n.url.clone()).collect();
+            
+            // 批量查询已存在的 URL
+            let existing_urls = repo.find_existing_urls(&urls).await?;
+            
+            // 过滤掉已存在的新闻
+            let filtered: Vec<NewsItem> = news
+                .into_iter()
+                .filter(|n| !existing_urls.contains(&n.url))
+                .collect();
+            
+            let skipped = urls.len() - filtered.len();
+            
+            if skipped > 0 {
+                info!("⏭️  忽略 {} 条已存在于数据库的新闻", skipped);
+            }
+            
+            (filtered, skipped)
+        } else {
+            (news, 0)
+        };
 
-        // 3. 排序（按时间，最新的在前）
+        if filtered_news.is_empty() {
+            info!("✅ 没有新新闻需要处理");
+            return Ok(Vec::new());
+        }
+
+        info!("🔍 需要处理 {} 条新新闻", filtered_news.len());
+
+        // 3. 去重（内存中的去重，以防抓取到重复的 URL）
+        let filtered_len = filtered_news.len();
+        let unique_news = NewsDeduplicationService::deduplicate_by_url(filtered_news);
+        if unique_news.len() != filtered_len {
+            info!("🧹 内存中去重，过滤掉 {} 条重复项", filtered_len - unique_news.len());
+        }
+
+        // 4. 排序（按时间，最新的在前）
         let sorted_news = NewsSortingService::sort_by_published_at_desc(unique_news);
 
-        // 4. 不执行分类，所有新闻都保留
+        // 5. 不执行分类，所有新闻都保留
         let news_items = sorted_news;
 
-        // 5. 保存到数据库（如果提供了 Repository）
-        if let Some(ref repo) = self.repository {
-            info!("💾 保存新闻到数据库...");
+        // 6. 保存到数据库（如果提供了 Repository）
+        if let Some(ref repo) = self.repository && !news_items.is_empty() {
+            info!("💾 保存 {} 条新新闻到数据库...", news_items.len());
             repo.save_batch(&news_items).await?;
             info!("✅ 保存完成！");
         }
 
-        info!("✅ 获取完成！共 {} 条新闻（已去重，未分类）", news_items.len());
+        info!("✅ 获取完成！共处理 {} 条新新闻（忽略 {} 条已存在）", news_items.len(), skipped_count);
 
         Ok(news_items)
     }

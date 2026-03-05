@@ -49,6 +49,12 @@ pub trait NewsRepository: Send + Sync {
         url: &str,
     ) -> Result<Option<NewsItem>, Box<dyn std::error::Error + Send + Sync>>;
 
+    /// 批量检查 URL 是否已存在
+    async fn find_existing_urls(
+        &self,
+        urls: &[String],
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
+
     /// 统计新闻总数
     async fn count(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>>;
 
