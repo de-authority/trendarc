@@ -81,7 +81,10 @@ impl<'a> FetchHotNewsService<'a> {
         &self,
         limit: usize,
     ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
-        info!("📡 从 {} 获取热点新闻（执行分类）...", self.fetcher.source_name());
+        info!(
+            "📡 从 {} 获取热点新闻（执行分类）...",
+            self.fetcher.source_name()
+        );
 
         // 1. 获取数据
         let news = self.fetcher.fetch(limit).await?;
@@ -91,22 +94,22 @@ impl<'a> FetchHotNewsService<'a> {
         let (filtered_news, skipped_count) = if let Some(ref repo) = self.repository {
             // 提取所有 URL
             let urls: Vec<String> = news.iter().map(|n| n.url.clone()).collect();
-            
+
             // 批量查询已存在的 URL
             let existing_urls = repo.find_existing_urls(&urls).await?;
-            
+
             // 过滤掉已存在的新闻
             let filtered: Vec<NewsItem> = news
                 .into_iter()
                 .filter(|n| !existing_urls.contains(&n.url))
                 .collect();
-            
+
             let skipped = urls.len() - filtered.len();
-            
+
             if skipped > 0 {
                 info!("⏭️  忽略 {} 条已存在于数据库的新闻", skipped);
             }
-            
+
             (filtered, skipped)
         } else {
             (news, 0)
@@ -123,7 +126,10 @@ impl<'a> FetchHotNewsService<'a> {
         let filtered_len = filtered_news.len();
         let unique_news = NewsDeduplicationService::deduplicate_by_url(filtered_news);
         if unique_news.len() != filtered_len {
-            info!("🧹 内存中去重，过滤掉 {} 条重复项", filtered_len - unique_news.len());
+            info!(
+                "🧹 内存中去重，过滤掉 {} 条重复项",
+                filtered_len - unique_news.len()
+            );
         }
 
         // 4. 排序（按时间，最新的在前）
@@ -136,13 +142,19 @@ impl<'a> FetchHotNewsService<'a> {
             .await;
 
         // 6. 保存到数据库（如果提供了 Repository）
-        if let Some(ref repo) = self.repository && !news_items.is_empty() {
+        if let Some(ref repo) = self.repository
+            && !news_items.is_empty()
+        {
             info!("💾 保存 {} 条新新闻到数据库...", news_items.len());
             repo.save_batch(&news_items).await?;
             info!("✅ 保存完成！");
         }
 
-        info!("✅ 获取完成！共处理 {} 条新新闻（忽略 {} 条已存在）", news_items.len(), skipped_count);
+        info!(
+            "✅ 获取完成！共处理 {} 条新新闻（忽略 {} 条已存在）",
+            news_items.len(),
+            skipped_count
+        );
 
         Ok(news_items)
     }
@@ -152,7 +164,10 @@ impl<'a> FetchHotNewsService<'a> {
         &self,
         limit: usize,
     ) -> Result<Vec<NewsItem>, Box<dyn std::error::Error + Send + Sync>> {
-        info!("📡 从 {} 获取热点新闻（不执行分类）...", self.fetcher.source_name());
+        info!(
+            "📡 从 {} 获取热点新闻（不执行分类）...",
+            self.fetcher.source_name()
+        );
 
         // 1. 获取数据
         let news = self.fetcher.fetch(limit).await?;
@@ -162,22 +177,22 @@ impl<'a> FetchHotNewsService<'a> {
         let (filtered_news, skipped_count) = if let Some(ref repo) = self.repository {
             // 提取所有 URL
             let urls: Vec<String> = news.iter().map(|n| n.url.clone()).collect();
-            
+
             // 批量查询已存在的 URL
             let existing_urls = repo.find_existing_urls(&urls).await?;
-            
+
             // 过滤掉已存在的新闻
             let filtered: Vec<NewsItem> = news
                 .into_iter()
                 .filter(|n| !existing_urls.contains(&n.url))
                 .collect();
-            
+
             let skipped = urls.len() - filtered.len();
-            
+
             if skipped > 0 {
                 info!("⏭️  忽略 {} 条已存在于数据库的新闻", skipped);
             }
-            
+
             (filtered, skipped)
         } else {
             (news, 0)
@@ -194,7 +209,10 @@ impl<'a> FetchHotNewsService<'a> {
         let filtered_len = filtered_news.len();
         let unique_news = NewsDeduplicationService::deduplicate_by_url(filtered_news);
         if unique_news.len() != filtered_len {
-            info!("🧹 内存中去重，过滤掉 {} 条重复项", filtered_len - unique_news.len());
+            info!(
+                "🧹 内存中去重，过滤掉 {} 条重复项",
+                filtered_len - unique_news.len()
+            );
         }
 
         // 4. 排序（按时间，最新的在前）
@@ -204,13 +222,19 @@ impl<'a> FetchHotNewsService<'a> {
         let news_items = sorted_news;
 
         // 6. 保存到数据库（如果提供了 Repository）
-        if let Some(ref repo) = self.repository && !news_items.is_empty() {
+        if let Some(ref repo) = self.repository
+            && !news_items.is_empty()
+        {
             info!("💾 保存 {} 条新新闻到数据库...", news_items.len());
             repo.save_batch(&news_items).await?;
             info!("✅ 保存完成！");
         }
 
-        info!("✅ 获取完成！共处理 {} 条新新闻（忽略 {} 条已存在）", news_items.len(), skipped_count);
+        info!(
+            "✅ 获取完成！共处理 {} 条新新闻（忽略 {} 条已存在）",
+            news_items.len(),
+            skipped_count
+        );
 
         Ok(news_items)
     }

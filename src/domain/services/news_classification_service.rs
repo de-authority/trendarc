@@ -4,6 +4,7 @@ use crate::domain::{
     ClassificationStrategy, Domain, KeywordBasedStrategy, NewsItem, NewsItemStatus,
 };
 use futures::future::join_all;
+use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -54,7 +55,7 @@ impl NewsClassificationService {
     }
 
     /// 核心分类逻辑（改进型五阶漏斗方案）
-    async fn classify_item(&self, news: &NewsItem) -> ClassificationOutcome {
+    async fn classify_item(&self, news: NewsItem) -> ClassificationOutcome {
         let mut best_domain = None;
         let mut best_confidence = 0.0_f32;
 
@@ -63,7 +64,7 @@ impl NewsClassificationService {
 
         // --- 第一阶段：静态规则 (Title/URL 扫描) ---
         let strategy = KeywordBasedStrategy::from_config(config.clone());
-        if let Some(result) = strategy.classify(news) {
+        if let Some(result) = strategy.classify(&news) {
             if result.confidence >= self.confidence_threshold {
                 return ClassificationOutcome {
                     domain: Some(result.domain),
@@ -99,7 +100,7 @@ impl NewsClassificationService {
                 } else {
                     content.text.replace('\n', " ")
                 };
-                info!("📄 提取内容预览: {}", preview);
+  
                 augmented_news.content = Some(content.text);
             }
             Err(e) => {
@@ -150,7 +151,10 @@ impl NewsClassificationService {
                     // 【重要】暂时禁用自动学习关键词，因为AI关键词不准
                     // 分类置信度与关键词质量无关，需要人工审核
                     if !result.suggested_keywords.is_empty() {
-                        info!("🔍 AI建议关键词（需人工审核）: {:?}", result.suggested_keywords);
+                        info!(
+                            "🔍 AI建议关键词（需人工审核）: {:?}",
+                            result.suggested_keywords
+                        );
                         // 暂不学习，记录日志供人工审核
                         // self.append_keywords(domain, result.suggested_keywords);
                     }
@@ -201,11 +205,11 @@ impl NewsClassificationService {
         let all_items: Vec<NewsItem> = items.drain(..).collect();
 
         // 2. 为每条新闻创建分类 future，全部并发执行
-        let futures: Vec<_> = all_items
-            .iter()
+        let outcomes: Vec<ClassificationOutcome> = stream::iter(all_items.clone().into_iter())
             .map(|item| self.classify_item(item))
-            .collect();
-        let outcomes: Vec<ClassificationOutcome> = join_all(futures).await;
+            .buffer_unordered(1) // 此处应该可以设置为环境变量. 用于控制AI的并发请求;
+            .collect()
+            .await;
 
         // 3. 根据结果重建过滤后的列表
         let mut filtered_items = Vec::new();

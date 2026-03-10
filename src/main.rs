@@ -6,10 +6,11 @@ mod infrastructure;
 use crate::application::orchestration;
 use crate::domain::NewsClassificationService;
 use crate::domain::fetchers::NewsSourceFactory;
+use crate::domain::services::DiscordService;
 use crate::infrastructure::database::create_pool;
 use crate::infrastructure::repositories::SqliteNewsRepository;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -37,6 +38,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         cli::Commands::Fetch {
             source,
             save,
+            discord,
+            discord_webhook,
             limit,
             domain,
         } => {
@@ -73,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     fetcher,
                     classifier.clone(),
                     limit,
-                    repository,
+                    repository.clone(),
                     should_classify,
                 )
                 .await?;
@@ -98,6 +101,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             orchestration::display_news(&filtered_news).await;
             info!("✅ 完成！共展示 {} 条新闻", filtered_news.len());
+
+            // 发送到 Discord（如果启用）
+            if discord && !filtered_news.is_empty() {
+                info!("📤 准备发送到 Discord...");
+                match infrastructure::create_discord_service(discord_webhook) {
+                    Ok(discord_service) => {
+                        // 将新闻转换为 Discord 消息
+                        let discord_messages: Vec<_> = filtered_news
+                            .iter()
+                            .map(|news| domain::services::DiscordMessage::from_news_item(news))
+                            .collect();
+                        
+                        match discord_service.send_batch(&discord_messages).await {
+                            Ok(_) => info!("✅ Discord 消息发送成功"),
+                            Err(e) => error!("❌ Discord 发送失败: {}", e),
+                        }
+                    }
+                    Err(e) => {
+                        error!("❌ Discord 服务初始化失败: {}", e);
+                    }
+                }
+            }
         }
         cli::Commands::List { limit, domain } => {
             info!("📊 初始化数据库: {}", db_path);

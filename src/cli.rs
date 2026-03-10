@@ -38,6 +38,14 @@ pub enum Commands {
         #[arg(short, long, action)]
         save: bool,
 
+        /// 是否发送到 Discord
+        #[arg(long, action)]
+        discord: bool,
+
+        /// Discord webhook URL (可选，默认从环境变量读取)
+        #[arg(long)]
+        discord_webhook: Option<String>,
+
         /// 新闻数量限制
         #[arg(short = 'n', long, default_value_t = 10)]
         limit: usize,
